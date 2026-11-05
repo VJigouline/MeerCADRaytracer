@@ -195,7 +195,59 @@ describe('RaytracingRenderer', () => {
     expect(drawn.at(-1)!.width).toBe(20);
     expect([...drawn.at(-1)!.data]).toEqual([...raytrace(testScene(), topCamera(), 20, 12, { samples: 2 }).data]);
     expect(progress[0]).toBe(0);
-    expect(renderer.progress).toEqual({ samples: 2, maxSamples: 2, done: true });
+    expect(renderer.progress).toMatchObject({ samples: 2, maxSamples: 2, done: true, stopped: false });
+    expect(renderer.progress.elapsed).toBeGreaterThanOrEqual(0);
+    renderer.dispose();
+  });
+
+  it('reports a stopped render', async () => {
+    const { canvas } = fakeCanvas();
+    const renderer = new RaytracingRenderer({ canvas, samples: 500, previewBlock: 1 });
+    renderer.setSize(20, 12);
+    const states: string[] = [];
+    renderer.onProgress(p => states.push(p.stopped ? 'stopped' : p.done ? 'done' : 'rendering'));
+    const result = renderer.renderAsync(testScene(), topCamera());
+    await new Promise(resolve => setTimeout(resolve, 30));
+    renderer.stop();
+    expect(await result).toBe(false);
+    expect(states[0]).toBe('rendering');
+    expect(states.at(-1)).toBe('stopped');
+    expect(renderer.progress.stopped).toBe(true);
+    renderer.dispose();
+  });
+
+  it('moves to another canvas, keeping its size', async () => {
+    const first = fakeCanvas(), second = fakeCanvas();
+    const renderer = new RaytracingRenderer({ canvas: first.canvas, samples: 1, previewBlock: 1 });
+    renderer.setSize(20, 12);
+    renderer.setCanvas(second.canvas);
+    expect(renderer.domElement).toBe(second.canvas);
+    expect(second.canvas.width).toBe(20);
+    expect(second.canvas.style.width).toBe('20px');
+    expect(await renderer.renderAsync(testScene(), topCamera())).toBe(true);
+    expect(second.drawn.length).toBeGreaterThan(0);
+    expect(first.drawn.length).toBe(0);
+    renderer.dispose();
+  });
+
+  it('keeps the camera proportions in a canvas of another shape with fitAspect', async () => {
+    // A square camera seeing -1..1; a canvas twice as wide sees -2..2 across with fitAspect.
+    const scene = new THREE.Scene();
+    const marker = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    marker.position.x = 1.5;
+    scene.add(marker);
+    const { canvas, drawn } = fakeCanvas();
+    const renderer = new RaytracingRenderer({ canvas, samples: 1, previewBlock: 1 });
+    renderer.setSize(40, 20);
+    const alphaAt = (x: number, y: number) => drawn.at(-1)!.data[(y * 40 + x) * 4 + 3]!;
+    await renderer.renderAsync(scene, topCamera());
+    // Stretched: x = 1.5 is outside the camera's -1..1, so nothing is drawn.
+    expect([...drawn.at(-1)!.data].some((v, i) => i % 4 === 3 && v > 0)).toBe(false);
+    renderer.fitAspect = true;
+    await renderer.renderAsync(scene, topCamera());
+    // Fitted: x = 1.5 maps to pixel (1.5 + 2) / 4 * 40 = 35, on the middle row.
+    expect(alphaAt(35, 10)).toBe(255);
+    expect(alphaAt(20, 10)).toBe(0);
     renderer.dispose();
   });
 

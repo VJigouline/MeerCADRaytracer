@@ -34,6 +34,8 @@ export interface ProgressiveOptions {
   filter?: (object: Object3D) => boolean;
   /** Shortest interval between frames, in milliseconds, apart from the last. */
   frameInterval: number;
+  /** Keep the camera's proportions when the image's aspect differs, instead of stretching. */
+  fitAspect?: boolean;
 }
 
 let nextTextureId = 1;
@@ -193,7 +195,7 @@ export class ProgressiveRenderer {
     const { width, height } = options;
     if (width <= 0 || height <= 0 || this.executors.length === 0) return false;
     this.sync.update(scene, camera, options.filter);
-    const compiledCamera = compileCamera(camera);
+    const compiledCamera = compileCamera(camera, options.fitAspect ? width / height : undefined);
     const image = new Uint8ClampedArray(width * height * 4);
     const sum = new Float32Array(width * height * 4);
     const tiles = makeTiles(width, height, options.tileSize);

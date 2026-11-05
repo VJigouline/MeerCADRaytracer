@@ -22,6 +22,7 @@ new RaytracingRenderer(parameters?: RaytracingRendererParameters)
 | `previewBlock` | 4 | Block size, in pixels, of the first quick preview. 1 turns it off. |
 | `tileSize` | 64 | Tile edge in pixels. |
 | `frameInterval` | 100 | Shortest time between canvas updates, in milliseconds. |
+| `fitAspect` | `false` | When the canvas is shaped differently from the camera's view, widen or narrow the view to keep its proportions. Off, the view is stretched to the canvas, as WebGLRenderer does. |
 | `toneMapping`, `toneMappingExposure`, `outputColorSpace` | as WebGLRenderer | Output settings, also settable as properties. |
 | `clearColor`, `clearAlpha` | black, 0 | Shown where nothing is hit and the scene has no background. |
 | `filter` | none | `(object) => boolean`. Return false to leave an object and its children out. |
@@ -29,9 +30,9 @@ new RaytracingRenderer(parameters?: RaytracingRendererParameters)
 
 ### Properties
 
-`domElement`, `toneMapping`, `toneMappingExposure`, `outputColorSpace`, `samples`, `maxBounces`, `shadows`, `globalIllumination`, `previewBlock` and `filter` can be changed at any time. Changes apply from the next `render`.
+`toneMapping`, `toneMappingExposure`, `outputColorSpace`, `samples`, `maxBounces`, `shadows`, `globalIllumination`, `previewBlock`, `fitAspect` and `filter` can be changed at any time. Changes apply from the next `render`. `domElement` is the canvas drawn into; change it with `setCanvas`.
 
-`progress` is `{ samples, maxSamples, done }` for the render in progress or just finished.
+`progress` describes the render in progress or just ended: `{ samples, maxSamples, done, stopped, elapsed }`. `samples` is the count every pixel has reached, 0 while only the preview shows. `stopped` is true when `stop()` ended the render early, and `elapsed` is in milliseconds.
 
 ### Methods
 
@@ -41,7 +42,8 @@ new RaytracingRenderer(parameters?: RaytracingRendererParameters)
 | `renderAsync(scene, camera)` | Renders and resolves with `true` when all samples are done, or `false` if restarted or stopped first. |
 | `whenDone()` | Resolves when the current render ends, as `renderAsync` does. |
 | `stop()` | Stops rendering. The canvas keeps what has been drawn. |
-| `onProgress(listener)` | Calls `listener({ samples, maxSamples, done })` as the image refines. Returns a function that removes the listener. |
+| `onProgress(listener)` | Calls `listener(progress)` when a render starts, as the image refines, and when it is stopped. Returns a function that removes the listener. |
+| `setCanvas(canvas)` | Draws into another canvas from now on, for example one in a separate browser window, keeping the workers and the compiled scene. Stops the render in progress; call `render` to fill the new canvas. |
 | `setSize(width, height, updateStyle = true)` | Sizes the canvas in CSS pixels, times the pixel ratio. |
 | `getSize(target?)` | Size in CSS pixels. |
 | `setPixelRatio(ratio)`, `getPixelRatio()` | As WebGLRenderer. |
@@ -68,7 +70,7 @@ Renders are deterministic: the same scene, camera, options and seed give the sam
 | Export | Use |
 |---|---|
 | `compileScene(scene, camera?, options?)` | Converts a scene to plain, structured-cloneable data: world-space triangles with a BVH, materials, decoded textures, lights, background, environment and fog. |
-| `compileCamera(camera)` | A camera's matrices, for perspective and orthographic cameras. |
+| `compileCamera(camera, aspect?)` | A camera's matrices, for perspective and orthographic cameras. With `aspect`, the view is fitted to that width-to-height ratio, as `fitAspect` does. |
 | `raytraceCompiled(compiledScene, compiledCamera, width, height, options?)` | `raytrace` for already compiled data. |
 | `Tracer` | Traces tiles of a compiled scene: `new Tracer(scene, settings).renderTile(camera, tile, width, height, pass)`. |
 | `ProgressiveRenderer` | The scheduler behind `RaytracingRenderer`, without the canvas: renders onto any set of executors and reports frames as RGBA arrays. |

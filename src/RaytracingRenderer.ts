@@ -23,12 +23,23 @@ export interface RaytracingRendererParameters extends RaytraceOptions {
   tileSize?: number;
   /** Shortest time between redraws while rendering, in milliseconds. Default 100. */
   frameInterval?: number;
+  /**
+   * Keep the camera's proportions when the canvas is shaped differently from the camera's view,
+   * widening or narrowing the view horizontally. Default false: stretch, as WebGLRenderer does.
+   */
+  fitAspect?: boolean;
 }
 
 export interface RaytracingProgress {
+  /** Samples every pixel has received; 0 while only the preview is showing. */
   samples: number;
   maxSamples: number;
+  /** Every pixel has maxSamples samples. */
   done: boolean;
+  /** stop() ended the render before it was done. */
+  stopped: boolean;
+  /** Milliseconds since the render started. */
+  elapsed: number;
 }
 
 type ProgressListener = (progress: RaytracingProgress) => void;
@@ -43,7 +54,8 @@ type ProgressListener = (progress: RaytracingProgress) => void;
  * when the camera moves, restarts it; calls in the same animation frame are merged.
  */
 export class RaytracingRenderer {
-  readonly domElement: HTMLCanvasElement;
+  /** The canvas drawn into. setCanvas changes it. */
+  domElement: HTMLCanvasElement;
   toneMapping = NoToneMapping;
   toneMappingExposure = 1;
   outputColorSpace: string = SRGBColorSpace;
@@ -52,9 +64,12 @@ export class RaytracingRenderer {
   shadows: TraceSettings['shadows'];
   globalIllumination: boolean;
   previewBlock: number;
+  fitAspect: boolean;
   filter: ((object: Object3D) => boolean) | undefined;
 
-  private readonly context: CanvasRenderingContext2D;
+  private context: CanvasRenderingContext2D;
+  private updateStyle = true;
+  private startTime = 0;
   private readonly progressive: ProgressiveRenderer;
   private readonly tileSize: number;
   private readonly frameInterval: number;
@@ -70,7 +85,7 @@ export class RaytracingRenderer {
   private scheduled = false;
   private current: Promise<boolean> = Promise.resolve(true);
   private readonly listeners = new Set<ProgressListener>();
-  private lastProgress: RaytracingProgress = { samples: 0, maxSamples: 0, done: true };
+  private lastProgress: RaytracingProgress = { samples: 0, maxSamples: 0, done: true, stopped: false, elapsed: 0 };
   private imageData: ImageData | null = null;
   private disposed = false;
 
@@ -86,6 +101,7 @@ export class RaytracingRenderer {
     this.shadows = parameters.shadows ?? 'all';
     this.globalIllumination = parameters.globalIllumination ?? false;
     this.previewBlock = parameters.previewBlock ?? 4;
+    this.fitAspect = parameters.fitAspect ?? false;
     this.filter = parameters.filter;
     this.tileSize = parameters.tileSize ?? 64;
     this.frameInterval = parameters.frameInterval ?? 100;
@@ -132,8 +148,24 @@ export class RaytracingRenderer {
     return this.pixelRatio;
   }
 
+  /**
+   * Draws into another canvas from now on, such as one in a separate window, keeping the
+   * workers and the compiled scene. The new canvas is given the current size; call setSize
+   * for a different one, and render to fill it.
+   */
+  setCanvas(canvas: HTMLCanvasElement): void {
+    if (canvas === this.domElement) return;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('meercad-raytracer: the canvas has no 2D context');
+    this.stop();
+    this.domElement = canvas;
+    this.context = context;
+    this.setSize(this.cssWidth, this.cssHeight, this.updateStyle);
+  }
+
   /** Sets the canvas size in CSS pixels; the canvas holds width x pixel ratio pixels. */
   setSize(width: number, height: number, updateStyle = true): void {
+    this.updateStyle = updateStyle;
     this.cssWidth = width;
     this.cssHeight = height;
     this.width = Math.max(0, Math.floor(width * this.pixelRatio));
@@ -209,6 +241,9 @@ export class RaytracingRenderer {
   stop(): void {
     this.pending = null;
     this.progressive.stop();
+    if (!this.lastProgress.done && !this.lastProgress.stopped) {
+      this.report({ ...this.lastProgress, stopped: true, elapsed: Date.now() - this.startTime });
+    }
   }
 
   /** Samples per pixel so far, and whether the render has finished. */
@@ -235,6 +270,8 @@ export class RaytracingRenderer {
   }
 
   private start(scene: Scene, camera: Camera): Promise<boolean> {
+    this.startTime = Date.now();
+    this.report({ samples: 0, maxSamples: Math.max(1, Math.floor(this.samples)), done: false, stopped: false, elapsed: 0 });
     const settings = traceSettings({
       maxBounces: this.maxBounces,
       shadows: this.shadows,
@@ -255,7 +292,13 @@ export class RaytracingRenderer {
       tileSize: this.tileSize,
       ...(this.filter ? { filter: this.filter } : {}),
       frameInterval: this.frameInterval,
+      fitAspect: this.fitAspect,
     }, frame => this.draw(frame));
+  }
+
+  private report(progress: RaytracingProgress): void {
+    this.lastProgress = progress;
+    for (const listener of this.listeners) listener(progress);
   }
 
   private draw(frame: ProgressiveFrame): void {
@@ -265,7 +308,6 @@ export class RaytracingRenderer {
     }
     this.imageData.data.set(frame.image);
     this.context.putImageData(this.imageData, 0, 0);
-    this.lastProgress = { samples: frame.samples, maxSamples: frame.maxSamples, done: frame.done };
-    for (const listener of this.listeners) listener(this.lastProgress);
+    this.report({ samples: frame.samples, maxSamples: frame.maxSamples, done: frame.done, stopped: false, elapsed: Date.now() - this.startTime });
   }
 }

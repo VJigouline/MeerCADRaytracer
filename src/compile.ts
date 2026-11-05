@@ -513,12 +513,29 @@ export function compileScene(scene: Scene, camera?: Camera, options: CompileOpti
   };
 }
 
-/** Compiles a three.js camera's matrices. Works for perspective and orthographic cameras. */
-export function compileCamera(camera: Camera): CompiledCamera {
+/**
+ * Compiles a three.js camera's matrices. Works for perspective and orthographic cameras.
+ *
+ * With `aspect` (image width over height), the view is widened or narrowed horizontally to that
+ * aspect, keeping its vertical extent, so an image shaped differently from the camera isn't
+ * stretched. Without it, the camera's view fills the image, as WebGLRenderer draws it.
+ */
+export function compileCamera(camera: Camera, aspect?: number): CompiledCamera {
   if (!camera.parent) camera.updateMatrixWorld();
   const world = Array.from(camera.matrixWorld.elements);
+  const projectionInverse = Array.from(camera.projectionMatrixInverse.elements);
+  if (aspect !== undefined && aspect > 0) {
+    // Projection x and y scales give the camera's own aspect, perspective or orthographic.
+    const p = camera.projectionMatrix.elements;
+    const cameraAspect = p[0] !== 0 ? p[5]! / p[0]! : 0;
+    if (cameraAspect > 0) {
+      // Scaling clip-space x by cameraAspect / aspect is scaling the inverse's first column the other way.
+      const k = aspect / cameraAspect;
+      for (let i = 0; i < 4; i++) projectionInverse[i] = projectionInverse[i]! * k;
+    }
+  }
   return {
-    projectionInverse: Array.from(camera.projectionMatrixInverse.elements),
+    projectionInverse,
     world,
     orthographic: (camera as any).isOrthographicCamera === true,
     forward: normalize([-world[8]!, -world[9]!, -world[10]!]),

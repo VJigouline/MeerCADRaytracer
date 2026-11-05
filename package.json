@@ -1,0 +1,49 @@
+{
+  "name": "meercad-raytracer",
+  "version": "1.0.0",
+  "description": "Ray tracer for three.js scenes: renders the scene and camera of a three.js canvas into a ray traced image, progressively and in Web Workers, with a drop-in canvas renderer.",
+  "keywords": ["raytracer", "ray-tracing", "path-tracing", "three", "threejs", "renderer", "webgl", "typescript"],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": ["./dist/worker.js"],
+  "files": ["dist", "Documentation", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "prepare": "npm run build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "three": "^0.187.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VJigouline/MeerCADRaytracer.git"
+  }
+}

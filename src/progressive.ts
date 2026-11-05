@@ -2,7 +2,7 @@ import type { Camera, Object3D, Scene } from 'three';
 import { linearToSrgb } from './color.js';
 import { compileCamera, compileGeometry, compileShading, type SceneShading } from './compile.js';
 import { SRGBColorSpace } from './constants.js';
-import type { TileExecutor } from './executors.js';
+import { LocalExecutor, type TileExecutor } from './executors.js';
 import type { RequestMessage, ShadingPayload, TextureRef } from './protocol.js';
 import type { CompiledGeometry, CompiledTexture, Tile, TraceSettings } from './types.js';
 
@@ -177,6 +177,7 @@ export function makeTiles(width: number, height: number, size: number): Tile[] {
 export class ProgressiveRenderer {
   private generation = 0;
   private job = 0;
+  private fellBack = false;
   readonly sync = new SceneSync();
 
   constructor(private executors: TileExecutor[]) {}
@@ -242,8 +243,15 @@ export class ProgressiveRenderer {
           work.splice(next, 0, item);
           this.executors = this.executors.filter(e => e !== executor);
           this.sync.forget(executor);
-          if (this.executors.length === 0) throw error;
-          return;
+          if (this.executors.length > 0) return;
+          // Every worker has failed, for example because the worker script couldn't load. Trace
+          // in the page instead, so the image still appears. If that fails too, give up.
+          if (executor instanceof LocalExecutor || this.fellBack) throw error;
+          this.fellBack = true;
+          console.warn(`meercad-raytracer: the ray tracing workers failed (${(error as Error).message}); tracing in the page instead`);
+          const local = new LocalExecutor();
+          this.executors.push(local);
+          return run(local);
         }
         if (!live()) return;
         if (item.block > 1) {

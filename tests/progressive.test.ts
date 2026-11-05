@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LocalExecutor, WorkerExecutor, type WorkerLike } from '../src/executors.js';
 import { ProgressiveRenderer, makeTiles, type ProgressiveFrame, type ProgressiveOptions } from '../src/progressive.js';
 import { createTileHandler, type RequestMessage } from '../src/protocol.js';
@@ -139,6 +139,25 @@ describe('ProgressiveRenderer', () => {
     const renderer = new ProgressiveRenderer([new WorkerExecutor(broken), new WorkerExecutor(new FakeWorker())]);
     expect(await renderer.render(testScene(), topCamera(), options(), () => undefined)).toBe(true);
   });
+
+  it('traces in the page when every worker fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // As when the worker script can't be loaded: the worker reports an error and never answers.
+    const broken = (): WorkerLike => ({
+      postMessage: () => undefined,
+      addEventListener: (type: string, listener: (event: any) => void) => {
+        if (type === 'error') setTimeout(() => listener({ message: 'script failed to load' }), 0);
+      },
+      terminate: () => undefined,
+    });
+    const scene = testScene(), camera = topCamera();
+    const renderer = new ProgressiveRenderer([new WorkerExecutor(broken()), new WorkerExecutor(broken())]);
+    let image: Uint8ClampedArray | null = null;
+    expect(await renderer.render(scene, camera, options(), frame => (image = frame.image.slice()))).toBe(true);
+    expect([...image!]).toEqual([...raytrace(scene, camera, 20, 12, { samples: 3 }).data]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('tracing in the page instead'));
+    warn.mockRestore();
+  });
 });
 
 describe('RaytracingRenderer', () => {
@@ -213,6 +232,18 @@ describe('RaytracingRenderer', () => {
     expect(states[0]).toBe('rendering');
     expect(states.at(-1)).toBe('stopped');
     expect(renderer.progress.stopped).toBe(true);
+    renderer.dispose();
+  });
+
+  it('reports a render that fails instead of leaving the canvas empty', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { canvas } = fakeCanvas();
+    const renderer = new RaytracingRenderer({ canvas, samples: 1, filter: () => { throw new Error('bad scene'); } });
+    renderer.setSize(8, 8);
+    expect(await renderer.renderAsync(testScene(), topCamera())).toBe(false);
+    expect(renderer.progress.error).toBe('bad scene');
+    expect(renderer.progress.stopped).toBe(true);
+    error.mockRestore();
     renderer.dispose();
   });
 

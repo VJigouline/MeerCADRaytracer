@@ -40,6 +40,8 @@ export interface RaytracingProgress {
   stopped: boolean;
   /** Milliseconds since the render started. */
   elapsed: number;
+  /** Why the render failed, when it did. */
+  error?: string;
 }
 
 type ProgressListener = (progress: RaytracingProgress) => void;
@@ -293,7 +295,13 @@ export class RaytracingRenderer {
       ...(this.filter ? { filter: this.filter } : {}),
       frameInterval: this.frameInterval,
       fitAspect: this.fitAspect,
-    }, frame => this.draw(frame));
+    }, frame => this.draw(frame)).catch((error: unknown) => {
+      // Report a failed render instead of leaving an unhandled rejection and an empty canvas.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('meercad-raytracer: ray tracing failed:', error);
+      this.report({ ...this.lastProgress, done: false, stopped: true, error: message, elapsed: Date.now() - this.startTime });
+      return false;
+    });
   }
 
   private report(progress: RaytracingProgress): void {

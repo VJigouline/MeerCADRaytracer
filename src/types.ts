@@ -73,6 +73,11 @@ export interface CompiledMaterial {
   specularColor: RGB;
   transmission: number;
   thickness: number;
+  /**
+   * Absorption inside a thick transmissive volume, per unit of world distance, per channel:
+   * -ln(attenuationColor) / attenuationDistance. Zero when nothing is absorbed.
+   */
+  attenuation: RGB;
   // Phong model.
   shininess: number;
   specular: RGB;

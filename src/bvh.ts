@@ -283,6 +283,7 @@ export function intersectClosest(
 
 /**
  * Calls `visit` for every triangle a ray hits between tMin and tMax, in no particular order,
+ * with whether the ray met the triangle's front side,
  * until `visit` returns false. Used for shadow rays, which only need to know what is in the way.
  */
 export function intersectAny(
@@ -292,7 +293,7 @@ export function intersectAny(
   dx: number, dy: number, dz: number,
   tMin: number, tMax: number,
   stack: Int32Array,
-  visit: (triangle: number, t: number, u: number, v: number) => boolean,
+  visit: (triangle: number, t: number, u: number, v: number, front: boolean) => boolean,
 ): void {
   if (bvh.nodeCount === 0) return;
   const bounds = bvh.bounds, nodes = bvh.nodes;
@@ -325,7 +326,7 @@ export function intersectAny(
       const v = (dx * qx + dy * qy + dz * qz) * inv;
       if (v < 0 || u + v > 1) continue;
       const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
-      if (t > tMin && t < tMax && !visit(k, t, u, v)) return;
+      if (t > tMin && t < tMax && !visit(k, t, u, v, det > 0)) return;
     }
   }
 }

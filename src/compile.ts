@@ -79,6 +79,18 @@ function collectObjects(scene: Scene, camera: Camera | undefined, options: Compi
   return { meshes, lights };
 }
 
+/**
+ * Beer-Lambert absorption coefficients of KHR_materials_volume, as three.js stores it:
+ * light that travels attenuationDistance through the volume keeps attenuationColor of itself.
+ */
+function volumeAttenuation(material: any): RGB {
+  const distance = material.attenuationDistance;
+  const colour = material.attenuationColor;
+  if (!colour || !(distance > 0) || distance === Infinity) return [0, 0, 0];
+  const coefficient = (c: number) => -Math.log(Math.min(Math.max(c, 1e-6), 1)) / distance;
+  return [coefficient(colour.r), coefficient(colour.g), coefficient(colour.b)];
+}
+
 function compileMaterial(material: any, table: TextureTable): CompiledMaterial {
   const standard = material.isMeshStandardMaterial === true;
   const physical = material.isMeshPhysicalMaterial === true;
@@ -124,6 +136,7 @@ function compileMaterial(material: any, table: TextureTable): CompiledMaterial {
     specularColor: physical ? rgb(material.specularColor) : [1, 1, 1],
     transmission: physical ? material.transmission ?? 0 : 0,
     thickness: physical ? material.thickness ?? 0 : 0,
+    attenuation: physical ? volumeAttenuation(material) : [0, 0, 0],
     shininess: material.shininess ?? 30,
     specular: material.specular ? rgb(material.specular) : [0.0666, 0.0666, 0.0666],
     envMap,

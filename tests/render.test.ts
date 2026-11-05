@@ -268,6 +268,56 @@ describe('raytrace visibility', () => {
     expect(r).toBeLessThan(0.1);
   });
 
+  it('absorbs light inside volumes with attenuationColor and attenuationDistance', () => {
+    // A white floor seen through a 1-unit glass slab whose attenuation keeps half the red per unit.
+    const scene = new THREE.Scene();
+    scene.add(floor(new THREE.MeshBasicMaterial({ color: 0xffffff })));
+    const glass = (attenuated: boolean) => new THREE.MeshPhysicalMaterial({
+      color: 0xffffff, transmission: 1, roughness: 0, thickness: 1,
+      ...(attenuated ? { attenuationColor: new THREE.Color(0.5, 1, 1), attenuationDistance: 1 } : {}),
+    });
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 1), glass(true));
+    slab.position.z = 1;
+    scene.add(slab);
+    const [r, g, b] = centre(render(scene, topCamera(), { samples: 16 }));
+    // Straight through, red keeps 0.5, less what the two surfaces reflect.
+    expect(r / g).toBeCloseTo(0.5, 1);
+    expect(b).toBeCloseTo(g, 2);
+    expect(g).toBeGreaterThan(0.7);
+    // Twice as thick, red keeps a quarter.
+    slab.scale.z = 2;
+    slab.position.z = 1.5;
+    const [r2, g2] = centre(render(scene, topCamera(), { samples: 16 }));
+    expect(r2 / g2).toBeCloseTo(0.25, 1);
+    // Without attenuation the glass stays clear.
+    slab.material = glass(false);
+    const [r3, g3] = centre(render(scene, topCamera(), { samples: 16 }));
+    expect(r3 / g3).toBeCloseTo(1, 2);
+  });
+
+  it('tints shadows by the absorption along the path through a volume', () => {
+    // Light reaches a white floor through the slab, and the camera sees the floor through it too.
+    // Red keeps about 0.5 per crossing: 0.5 without shadows, and about 0.25 with them. The light's
+    // slant makes its path slightly longer than 1.
+    const scene = new THREE.Scene();
+    // The light comes in at an angle, so the glass doesn't reflect it straight into the camera.
+    const light = new THREE.DirectionalLight(0xffffff, Math.PI);
+    light.position.set(1, 0.5, 10);
+    scene.add(floor(new THREE.MeshLambertMaterial({ color: 0xffffff })), light);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 1), new THREE.MeshPhysicalMaterial({
+      color: 0xffffff, transmission: 1, roughness: 0, thickness: 1,
+      attenuationColor: new THREE.Color(0.5, 1, 1), attenuationDistance: 1,
+    }));
+    slab.position.z = 1;
+    scene.add(slab);
+    const ratio = (shadows: 'all' | 'none') => {
+      const [r, g] = centre(render(scene, topCamera(), { samples: 32, shadows }));
+      return r / g;
+    };
+    expect(ratio('none')).toBeCloseTo(0.5, 1);
+    expect(ratio('all')).toBeCloseTo(0.25, 1);
+  });
+
   it('repeats exactly for the same seed', () => {
     const scene = new THREE.Scene();
     scene.add(floor(new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.5 })), overheadLight(2), new THREE.AmbientLight(0xffffff, 1));

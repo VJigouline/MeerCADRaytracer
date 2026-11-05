@@ -46,8 +46,10 @@ export class Tracer {
   // Distances of the see-through surfaces a shadow ray has already counted. A ray through the
   // edge two triangles share hits both, and must only be dimmed once.
   private readonly shadowHits: number[] = [];
-  private readonly shadowVisit = (triangle: number, t: number, u: number, v: number): boolean =>
-    this.attenuateShadow(triangle, t, u, v);
+  // Optical depth a shadow ray gathers through absorbing volumes, per channel.
+  private readonly shadowDepth = [0, 0, 0];
+  private readonly shadowVisit = (triangle: number, t: number, u: number, v: number, front: boolean): boolean =>
+    this.attenuateShadow(triangle, t, u, v, front);
 
   constructor(readonly scene: CompiledScene, readonly settings: TraceSettings) {}
 
@@ -105,6 +107,8 @@ export class Tracer {
     let bounce = 0;
     let passes = 0;
     let cull = true;
+    // Absorption of the volume the ray is travelling through, from the last refraction into one.
+    let mr = 0, mg = 0, mb = 0;
 
     for (;;) {
       if (!intersectClosest(geometry.triangles, geometry.sides, geometry.bvh, ox, oy, oz, dx, dy, dz, 0, Infinity, cull, hit, this.stack)) {
@@ -121,6 +125,10 @@ export class Tracer {
         break;
       }
 
+      if (mr > 0 || mg > 0 || mb > 0) {
+        // Beer-Lambert absorption over the distance travelled inside the volume.
+        tr *= Math.exp(-mr * hit.t); tg *= Math.exp(-mg * hit.t); tb *= Math.exp(-mb * hit.t);
+      }
       const k = hit.triangle;
       const material = scene.materials[geometry.materials[k]!]!;
       const t = hit.t;
@@ -424,8 +432,18 @@ export class Tracer {
         if (material.thickness > 0) {
           // Refract into a solid object, or out of it when the ray is inside.
           const eta = hit.front ? 1 / material.ior : material.ior;
-          if (!this.refract(dx, dy, dz, nx, ny, nz, eta)) this.reflection(dx, dy, dz, nx, ny, nz, 0);
-          cull = !hit.front;
+          if (this.refract(dx, dy, dz, nx, ny, nz, eta)) {
+            // Entering the volume: see its back faces and absorb its colour. Leaving: neither.
+            cull = !hit.front;
+            if (hit.front) {
+              mr = material.attenuation[0]; mg = material.attenuation[1]; mb = material.attenuation[2];
+            } else {
+              mr = mg = mb = 0;
+            }
+          } else {
+            // Total internal reflection: the ray stays inside, still absorbing.
+            this.reflection(dx, dy, dz, nx, ny, nz, 0);
+          }
         } else {
           this.sx = dx; this.sy = dy; this.sz = dz;
         }
@@ -513,12 +531,17 @@ export class Tracer {
     this.shadowColor[0] = this.shadowColor[1] = this.shadowColor[2] = 1;
     this.shadowCastOnly = castOnly;
     this.shadowHits.length = 0;
+    this.shadowDepth[0] = this.shadowDepth[1] = this.shadowDepth[2] = 0;
     const geometry = this.scene.geometry;
     intersectAny(geometry.triangles, geometry.bvh, ox, oy, oz, dx, dy, dz, 0, maxT, this.stack, this.shadowVisit);
+    for (let c = 0; c < 3; c++) {
+      const depth = this.shadowDepth[c]!;
+      if (depth > 0) this.shadowColor[c] = this.shadowColor[c]! * Math.exp(-depth);
+    }
     return this.shadowColor[0]! + this.shadowColor[1]! + this.shadowColor[2]! > 0;
   }
 
-  private attenuateShadow(triangle: number, t: number, u: number, v: number): boolean {
+  private attenuateShadow(triangle: number, t: number, u: number, v: number, front: boolean): boolean {
     const geometry = this.scene.geometry;
     const flags = geometry.flags[triangle]!;
     if (this.shadowCastOnly && (flags & TRI_CAST_SHADOW) === 0) return true;
@@ -548,6 +571,15 @@ export class Tracer {
     const eps = geometry.epsilon;
     for (const seen of this.shadowHits) if (Math.abs(seen - t) <= eps) return true;
     this.shadowHits.push(t);
+    if (material.thickness > 0) {
+      // The distance a ray spends inside a closed volume is the sum of its exit distances less its
+      // entry distances, whatever order the hits arrive in. It also counts from the start of a ray
+      // that begins inside the volume.
+      const a = material.attenuation, signed = front ? -t : t;
+      this.shadowDepth[0] = this.shadowDepth[0]! + a[0] * signed;
+      this.shadowDepth[1] = this.shadowDepth[1]! + a[1] * signed;
+      this.shadowDepth[2] = this.shadowDepth[2]! + a[2] * signed;
+    }
     // Light passes the part that isn't covered, and transmissive surfaces let through their colour.
     const open = 1 - alpha;
     const through = material.transmission;

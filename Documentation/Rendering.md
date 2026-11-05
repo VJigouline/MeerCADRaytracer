@@ -16,7 +16,7 @@ The ray tracer reads the same scene graph three.js draws. It evaluates each surf
 
 | three.js material | Shading |
 |---|---|
-| `MeshStandardMaterial`, `MeshPhysicalMaterial` | GGX specular with Smith visibility, three.js's multiple-scattering compensation (from its DFG table) and Fresnel-weighted Lambert diffuse. Physical materials use `ior`, `specularIntensity`, `specularColor` and `transmission`. |
+| `MeshStandardMaterial`, `MeshPhysicalMaterial` | GGX specular with Smith visibility, three.js's multiple-scattering compensation (from its DFG table) and Fresnel-weighted Lambert diffuse. Physical materials use `ior`, `specularIntensity`, `specularColor`, `transmission`, `thickness`, `attenuationColor` and `attenuationDistance`. |
 | `MeshPhongMaterial` | Lambert diffuse plus three.js's Blinn-Phong highlight (`specular`, `shininess`). |
 | `MeshLambertMaterial` | Lambert diffuse. |
 | `MeshToonMaterial` | Two-tone diffuse, using three.js's default gradient. |
@@ -28,7 +28,9 @@ Common properties: `color`, `opacity`, `transparent` (stochastic, so many sample
 
 **Reflections.** Standard and physical materials reflect the scene, weighted by the same split-sum energy three.js uses for environment maps. Rough surfaces sample a GGX-distributed microfacet normal, so reflections blur with roughness. Reflection rays that leave the scene see the material's `envMap`, else `scene.environment`, else black, which is also what WebGL shows without an environment map. Lambert, Phong and Basic materials mix in their `envMap` with `combine` and `reflectivity`, as three.js does.
 
-**Transmission.** A physical material with `transmission` lets light through, tinted by its colour. With `thickness` above 0, the ray refracts by `ior` into and out of the object. With `thickness` 0, the default, the surface is thin-walled and rays pass straight through.
+**Transmission.** A physical material with `transmission` lets light through, tinted by its colour. With `thickness` above 0, the ray refracts by `ior` into and out of the object, and can reflect inside it. With `thickness` 0, the default, the surface is thin-walled and rays pass straight through.
+
+**Coloured glass.** Inside a thick volume, `attenuationColor` and `attenuationDistance` (glTF's `KHR_materials_volume`) absorb light by the distance travelled, as Beer–Lambert absorption: after `attenuationDistance`, light keeps `attenuationColor` of itself. The ray tracer measures the true distance through the object, so thin parts look pale and thick parts deep, and shadows through the volume are tinted the same way. `thickness` and `thicknessMap` only decide that the object is solid, since the ray tracer doesn't need their estimate of the distance.
 
 ## Lights
 
